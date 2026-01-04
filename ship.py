@@ -54,14 +54,14 @@ class SovaShip:
                     
                     # --- MODIFIED CHANGE 2: ROBUST CLONE & WAIT LOGIC ---
                     local_path = os.path.join(SHIP_WORKSPACE, project_name)
-                    gh_token = os.getenv("GITHUB_TOKEN")
+                    gh_token = os.getenv("GH_TOKEN")
                     
                     if not os.path.exists(local_path):
                         self.log(f"🚢 📥 Folder missing in Ship container. Cloning from GitHub...")
                         repo_url = f"https://{gh_token}@github.com/Intercost/{project_name}.git"
                         
                         # Explicitly clone into a directory named project_name inside SHIP_WORKSPACE
-                        self.run_command(f"git clone {repo_url} {project_name}", SHIP_WORKSPACE)
+                        self.run_command(f'git clone "{repo_url}" "{project_name}"', SHIP_WORKSPACE)
                         
                         # Double-check that the directory actually exists now
                         if not os.path.exists(local_path):
@@ -79,7 +79,7 @@ class SovaShip:
                     else:
                         vercel_cmd = "vercel --prod --yes"
                         
-                    vercel_output = self.run_command(vercel_cmd, local_path)
+                    vercel_output = self.run_command(vercel_cmd, f'"{local_path}"')
                     
                     # Extract live URL from output
                     live_url = "Pending..."
@@ -92,7 +92,7 @@ class SovaShip:
                     if any(tech in tech_stack for tech in ["Python", "Node", "Backend"]):
                         self.log("⚙️ Backend detected. Deploying to Railway...")
                         railway_token = os.getenv("RAILWAY_TOKEN")
-                        self.run_command("railway up --detach", local_path, {"RAILWAY_TOKEN": railway_token})
+                        self.run_command("railway up --detach", f'"{local_path}"', {"RAILWAY_TOKEN": railway_token})
 
                     # 4. Finalize in Supabase
                     memory.client.table("projects").update({
