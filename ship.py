@@ -42,40 +42,51 @@ class SovaShip: # Removed "App" suffix
         while True:
             try:
                 # Poll Supabase for projects with 'POLISHED' status
-                response = memory.get_next_task("POLISHED")
+                response = memory.client.table("projects").select("*").eq("status", "POLISHED").execute()
+                
                 if response.data:
-                    project = response.data[0]
-                    self.process_deployment(project)
-                else:
-                    time.sleep(30) 
-            except Exception as e:
-                self.log(f"⚠️ Ship Monitor Error: {e}")
-                time.sleep(10)
+                    for project in response.data:
+                        project_id = project['id']
+                        project_name = project['project_name']
+                        
+                        self.log(f"🚀 STARTING DEPLOYMENT: {project_name}")
+                        
+                        # --- MODIFIED PART: CLONE FROM GITHUB ---
+                        # Bridge the gap between containers by pulling the latest code
+                        gh_token = os.getenv("GH_TOKEN")
+                        local_path = os.path.join(SHIP_WORKSPACE, project_name)
+                        
+                        if not os.path.exists(local_path):
+                            self.log(f"📥 Folder missing in Ship container. Cloning from GitHub...")
+                            # Using the GH_TOKEN for authenticated cloning
+                            repo_url = f"https://{gh_token}@github.com/Intercost/{project_name}.git"
+                            self.run_command(f"git clone {repo_url}", SHIP_WORKSPACE)
+                        else:
+                            self.log(f"🔄 Folder exists. Pulling latest polished updates...")
+                            self.run_command("git pull", local_path)
+                        # --- END OF MODIFICATION ---
 
-    def process_deployment(self, project):
+                        self.deploy_project(project)
+                else:
+                    time.sleep(15) # Wait before checking again
+            except Exception as e:
+                self.log(f"❌ Ship Monitor Error: {e}")
+                time.sleep(20)
+
+    def deploy_project(self, project):
         project_id = project['id']
-        repo_url = project.get('github_url')
-        project_name = re.sub(r'[<>:"/\\|?*]', '', project['project_name']).replace(" ", "_")
+        project_name = project['project_name']
         local_path = os.path.join(SHIP_WORKSPACE, project_name)
 
-        if not repo_url:
-            self.log(f"❌ Error: No GitHub URL for {project_name}.")
-            return
-
         try:
-            self.log(f"🚀 DEPLOYMENT STARTED: {project_name}")
-            
-            if os.path.exists(local_path):
-                shutil.rmtree(local_path)
-            
-            # 1. Clone the Polished repo
-            self.run_command(f"git clone {repo_url} {local_path}", SHIP_WORKSPACE)
+            # 1. Verification
+            if not os.path.exists(local_path):
+                raise FileNotFoundError(f"Directory not found: {local_path}")
 
             # 2. Deployment Logic (Vercel for Frontends)
-            self.log("📦 Deploying Frontend to Vercel...")
-            
-            # Use VERCEL_TOKEN for non-interactive login in the cloud
+            self.log(f"📦 Deploying {project_name} to Vercel...")
             vercel_token = os.getenv("VERCEL_TOKEN")
+            
             if vercel_token:
                 vercel_cmd = f"vercel --prod --yes --token {vercel_token}"
             else:
@@ -85,7 +96,7 @@ class SovaShip: # Removed "App" suffix
             
             # Extract live URL from output
             live_url = "Pending..."
-            urls = re.findall(r'https://[a-zA-Z0-9.-]+\.vercel\.app', vercel_output)
+            urls = re.findall(r'https://[a-zA-Z0-9.-]+\\.vercel\\.app', vercel_output)
             if urls:
                 live_url = urls[-1] 
 
@@ -106,8 +117,9 @@ class SovaShip: # Removed "App" suffix
             self.log(f"✅ MISSION ACCOMPLISHED: {project_name} is LIVE at {live_url}")
 
         except Exception as e:
-            self.log(f"❌ Ship Error: {str(e)}")
+            self.log(f"❌ Ship Error: {e}")
+            # Keep as POLISHED so we can retry, or set to FAILED if it's a code error
+            # memory.update_status(project_id, "FAILED")
 
 if __name__ == "__main__":
-    # Start the headless agent
-    agent = SovaShip()
+    SovaShip()
