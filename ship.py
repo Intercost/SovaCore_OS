@@ -53,20 +53,27 @@ class SovaShip:
                     self.log(f"🚀 MISSION RECEIVED: Deploying {project_name}...")
                     
                     # --- MODIFIED CHANGE 2: ROBUST CLONE & WAIT LOGIC ---
-                    local_path = os.path.join(SHIP_WORKSPACE, project_name)
+                    safe_dir_name = project["project_name"].replace(" ", "_")
+                    local_path = os.path.join(SHIP_WORKSPACE, safe_dir_name)
                     gh_token = os.getenv("GH_TOKEN")
                     
                     if not os.path.exists(local_path):
                         self.log(f"🚢 📥 Folder missing in Ship container. Cloning from GitHub...")
 
-                        repo_url = project['github_url'].replace(
-                            "https://github.com/",
-                            f"https://{gh_token}@github.com/"
-                        )
-
+                        repo_url = project['github_url']
+                        
+                        # inject token for private access
+                        if gh_token and repo_url.startswith("https://github.com/"):
+                            repo_url = repo_url.replace(
+                                "https://github.com/",
+                                f"https://{gh_token}@github.com/"
+                            )
                         
                         # Explicitly clone into a directory named project_name inside SHIP_WORKSPACE
-                        self.run_command(f'git clone "{repo_url}" "{project_name}"', SHIP_WORKSPACE)
+                        self.run_command(
+                            f'git clone "{repo_url}" "{safe_dir_name}"',
+                            SHIP_WORKSPACE
+                        )
                         
                         # Double-check that the directory actually exists now
                         if not os.path.exists(local_path):
