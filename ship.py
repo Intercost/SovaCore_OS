@@ -15,111 +15,99 @@ SHIP_WORKSPACE = "./Ship_Workspace"
 if not os.path.exists(SHIP_WORKSPACE):
     os.makedirs(SHIP_WORKSPACE)
 
-class SovaShip: # Removed "App" suffix
-    def __init__(self): # Removed 'root' window parameter
+class SovaShip: 
+    def __init__(self): 
         self.log("🚢 Sova-Ship Headless Online. Awaiting POLISHED projects...")
         self.autonomous_monitor()
 
     def log(self, message):
-        # Print directly to the terminal/cloud log
         print(f"🚢 {message}")
 
+    # --- MODIFIED CHANGE 1: IMPROVED RUN_COMMAND ---
     def run_command(self, command, cwd, env=None):
-        # Pass environment variables (like RAILWAY_TOKEN) if provided
+        self.log(f"🛠️ Running: {command}")
         current_env = os.environ.copy()
         if env:
             current_env.update(env)
             
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                   shell=True, text=True, cwd=cwd, env=current_env)
-        output = ""
-        for line in process.stdout:
-            output += line
-        process.wait()
-        return output
+        # Using subprocess.run with check=True forces the script to WAIT for completion
+        # and raises an error if the command fails, preventing "Directory not found" loops.
+        try:
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                                    shell=True, text=True, cwd=cwd, env=current_env, check=True)
+            return result.stdout
+        except subprocess.CalledProcessError as e:
+            self.log(f"❌ Command Failed: {e.stderr}")
+            return ""
 
     def autonomous_monitor(self):
         while True:
             try:
                 # Poll Supabase for projects with 'POLISHED' status
-                response = memory.client.table("projects").select("*").eq("status", "POLISHED").execute()
-                
+                response = memory.get_next_task("POLISHED")
                 if response.data:
-                    for project in response.data:
-                        project_id = project['id']
-                        project_name = project['project_name']
+                    project = response.data[0]
+                    project_id = project['id']
+                    project_name = project['project_name']
+                    
+                    self.log(f"🚀 MISSION RECEIVED: Deploying {project_name}...")
+                    
+                    # --- MODIFIED CHANGE 2: ROBUST CLONE & WAIT LOGIC ---
+                    local_path = os.path.join(SHIP_WORKSPACE, project_name)
+                    gh_token = os.getenv("GITHUB_TOKEN")
+                    
+                    if not os.path.exists(local_path):
+                        self.log(f"🚢 📥 Folder missing in Ship container. Cloning from GitHub...")
+                        repo_url = f"https://{gh_token}@github.com/Intercost/{project_name}.git"
                         
-                        self.log(f"🚀 STARTING DEPLOYMENT: {project_name}")
+                        # Explicitly clone into a directory named project_name inside SHIP_WORKSPACE
+                        self.run_command(f"git clone {repo_url} {project_name}", SHIP_WORKSPACE)
                         
-                        # --- MODIFIED PART: CLONE FROM GITHUB ---
-                        # Bridge the gap between containers by pulling the latest code
-                        gh_token = os.getenv("GH_TOKEN")
-                        local_path = os.path.join(SHIP_WORKSPACE, project_name)
-                        
+                        # Double-check that the directory actually exists now
                         if not os.path.exists(local_path):
-                            self.log(f"📥 Folder missing in Ship container. Cloning from GitHub...")
-                            # Using the GH_TOKEN for authenticated cloning
-                            repo_url = f"https://{gh_token}@github.com/Intercost/{project_name}.git"
-                            self.run_command(f"git clone {repo_url}", SHIP_WORKSPACE)
-                        else:
-                            self.log(f"🔄 Folder exists. Pulling latest polished updates...")
-                            self.run_command("git pull", local_path)
-                        # --- END OF MODIFICATION ---
+                            self.log(f"🚢 ❌ Ship Error: Directory not found after clone: {local_path}")
+                            time.sleep(10)
+                            continue
 
-                        self.deploy_project(project)
+                    # 1. Update status to SHIPPING in Supabase
+                    memory.update_status(project_id, "SHIPPING")
+
+                    # 2. Deployment Logic (Vercel for Frontends)
+                    vercel_token = os.getenv("VERCEL_TOKEN")
+                    if vercel_token:
+                        vercel_cmd = f"vercel --prod --yes --token {vercel_token}"
+                    else:
+                        vercel_cmd = "vercel --prod --yes"
+                        
+                    vercel_output = self.run_command(vercel_cmd, local_path)
+                    
+                    # Extract live URL from output
+                    live_url = "Pending..."
+                    urls = re.findall(r'https://[a-zA-Z0-9.-]+\.vercel\.app', vercel_output)
+                    if urls:
+                        live_url = urls[-1] 
+
+                    # 3. Deployment Logic (Railway for Backends)
+                    tech_stack = project.get('tech_stack', '')
+                    if any(tech in tech_stack for tech in ["Python", "Node", "Backend"]):
+                        self.log("⚙️ Backend detected. Deploying to Railway...")
+                        railway_token = os.getenv("RAILWAY_TOKEN")
+                        self.run_command("railway up --detach", local_path, {"RAILWAY_TOKEN": railway_token})
+
+                    # 4. Finalize in Supabase
+                    memory.client.table("projects").update({
+                        "status": "COMPLETE",
+                        "live_url": live_url
+                    }).eq("id", project_id).execute()
+                    
+                    self.log(f"✅ MISSION ACCOMPLISHED: {project_name} is LIVE at {live_url}")
+
                 else:
-                    time.sleep(15) # Wait before checking again
+                    time.sleep(15) # Wait for new polished projects
+
             except Exception as e:
-                self.log(f"❌ Ship Monitor Error: {e}")
-                time.sleep(20)
-
-    def deploy_project(self, project):
-        project_id = project['id']
-        project_name = project['project_name']
-        local_path = os.path.join(SHIP_WORKSPACE, project_name)
-
-        try:
-            # 1. Verification
-            if not os.path.exists(local_path):
-                raise FileNotFoundError(f"Directory not found: {local_path}")
-
-            # 2. Deployment Logic (Vercel for Frontends)
-            self.log(f"📦 Deploying {project_name} to Vercel...")
-            vercel_token = os.getenv("VERCEL_TOKEN")
-            
-            if vercel_token:
-                vercel_cmd = f"vercel --prod --yes --token {vercel_token}"
-            else:
-                vercel_cmd = "vercel --prod --yes"
-                
-            vercel_output = self.run_command(vercel_cmd, local_path)
-            
-            # Extract live URL from output
-            live_url = "Pending..."
-            urls = re.findall(r'https://[a-zA-Z0-9.-]+\\.vercel\\.app', vercel_output)
-            if urls:
-                live_url = urls[-1] 
-
-            # 3. Deployment Logic (Railway for Backends)
-            tech_stack = project.get('tech_stack', '')
-            if any(tech in tech_stack for tech in ["Python", "Node", "Backend"]):
-                self.log("⚙️ Backend detected. Deploying to Railway...")
-                railway_token = os.getenv("RAILWAY_TOKEN")
-                # CLI automatically uses RAILWAY_TOKEN if set in env
-                self.run_command("railway up --detach", local_path, {"RAILWAY_TOKEN": railway_token})
-
-            # 4. Finalize in Supabase
-            memory.client.table("projects").update({
-                "status": "COMPLETE",
-                "live_url": live_url
-            }).eq("id", project_id).execute()
-            
-            self.log(f"✅ MISSION ACCOMPLISHED: {project_name} is LIVE at {live_url}")
-
-        except Exception as e:
-            self.log(f"❌ Ship Error: {e}")
-            # Keep as POLISHED so we can retry, or set to FAILED if it's a code error
-            # memory.update_status(project_id, "FAILED")
+                self.log(f"❌ Ship Error: {e}")
+                time.sleep(10)
 
 if __name__ == "__main__":
     SovaShip()
