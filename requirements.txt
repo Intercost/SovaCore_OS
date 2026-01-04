@@ -1,12 +1,6 @@
-# Python Dependencies
+# requirements.txt
 supabase
 google-generativeai
 google-genai
 feedparser
 python-dotenv
-
-# Railway System Setup (Do not remove)
-# This tells Railway to install the tools your agents need to deploy
-[phases.setup]
-nixPkgs = ["python3", "nodejs", "git"]
-cmds = ["npm install -g vercel railway"]
