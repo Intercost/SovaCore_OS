@@ -1,0 +1,16 @@
+# Sensitive Data
+.env
+
+# Python specific
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Project Builds
+/projects/
