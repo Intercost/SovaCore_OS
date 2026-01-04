@@ -39,8 +39,14 @@ class UniversalArchitect:
                 time.sleep(10)
 
     def run_command(self, command, cwd):
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
-                                   shell=True, text=True, cwd=cwd)
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, 
+            shell=True,
+            text=True,
+            cwd=cwd
+        )
         for line in process.stdout:
             self.log(line.strip())
         process.wait()
@@ -51,11 +57,10 @@ class UniversalArchitect:
         description = project['description']
         tech_stack = project.get('tech_stack', 'Any suitable stack')
 
-        # FIX: Sanitize project name for Windows file systems
+        # Sanitize project name
         project_name = re.sub(r'[<>:"/\\|?*]', '', project['project_name']).replace(" ", "_")
         
         try:
-            # FIX: Using 'gemini-1.5-flash' for maximum compatibility
             model = genai.GenerativeModel("gemini-2.5-flash") 
             
             system_prompt = f"""
@@ -67,7 +72,7 @@ class UniversalArchitect:
             
             RULES:
             1. Output ONLY valid JSON.
-            2. Do not use Markdown code blocks (no ```json).
+            2. Do not use Markdown code blocks.
             3. Include a 'start_command'.
 
             JSON STRUCTURE:
@@ -77,20 +82,11 @@ class UniversalArchitect:
                 "start_command": "command_to_run",
                 "files": [ {{"path": "file.ext", "content": "code"}} ]
             }}
-
-            When generating code for new SovaCore agents:
-            1. Use the 'google-genai' library.
-            2. Hardcode the model as 'gemini-2.5-flash' for maximum reliability.
-            3. Use the environment variable 'GEMINI_API_KEY_ALPHA' for the API key.
-            4. Ensure the agent connects to the existing SovaCore Supabase database via 'memory.py'.
             """
 
             response = model.generate_content(system_prompt)
             
-            # --- ROBUST JSON PARSE ---
-            raw_text = response.text
-            # Remove any accidental markdown backticks the AI might add
-            clean_json = re.sub(r"```json|```", "", raw_text).strip()
+            clean_json = re.sub(r"```json|```", "", response.text).strip()
             data = json.loads(clean_json)
             
             full_project_path = os.path.join(DESKTOP_PATH, project_name)
@@ -99,9 +95,7 @@ class UniversalArchitect:
             # --- FILE CREATION ---
             for file_info in data['files']:
                 f_path = os.path.join(full_project_path, file_info['path'])
-                # Ensure subdirectories exist
                 os.makedirs(os.path.dirname(f_path), exist_ok=True)
-                
                 with open(f_path, "w", encoding="utf-8") as f:
                     f.write(file_info['content'])
                 self.log(f"✅ Created: {file_info['path']}")
@@ -114,7 +108,7 @@ class UniversalArchitect:
             # --- GITHUB UPLOAD ---
             repo_url = self.git_push_to_github(full_project_path, project_name)
 
-            # --- UPDATE SUPABASE ---
+            # --- UPDATE SUPABASE (ONLY AFTER SUCCESS) ---
             memory.client.table("projects").update({
                 "status": "BUILT",
                 "github_url": repo_url
@@ -128,19 +122,22 @@ class UniversalArchitect:
 
     def git_push_to_github(self, project_path, repo_name):
         self.log(f"Pushing {repo_name} to GitHub...")
-        # Note: Ensure 'gh auth status' passes in your terminal first
+
         commands = [
             "git init",
+            'git config user.email "juniorintercostlandian@gmail.com"',
+            'git config user.name "Intercost"',
             "git add .",
             'git commit -m "Initial build by Sova-Alpha"',
-            f"gh repo create {repo_name} --public --source=. --remote=origin --push"
+            f"gh repo create Intercost/{repo_name} --public --source=. --remote=origin --push"
         ]
+
         for cmd in commands:
-            self.run_command(cmd, project_path)
-        
-        # Replace 'Intercost' with your actual GitHub username from your .env if needed
+            code = self.run_command(cmd, project_path)
+            if code != 0 and "commit" in cmd:
+                raise RuntimeError("Git commit failed — aborting GitHub upload")
+
         return f"https://github.com/Intercost/{repo_name}.git"
 
 if __name__ == "__main__":
-    # Start the agent without creating a Tkinter window
     agent = UniversalArchitect()
