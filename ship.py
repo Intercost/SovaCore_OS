@@ -59,8 +59,11 @@ class SovaShip:
                     if not os.path.exists(local_path):
                         self.log(f"🚢 📥 Folder missing in Ship container. Cloning from GitHub...")
 
-                        safe_project_name_url = project_name.replace(" ", "%20")
-                        repo_url = f"https://{gh_token}@github.com/Intercost/{safe_project_name_url}.git"
+                        repo_url = project['github_url'].replace(
+                            "https://github.com/",
+                            f"https://{gh_token}@github.com/"
+                        )
+
                         
                         # Explicitly clone into a directory named project_name inside SHIP_WORKSPACE
                         self.run_command(f'git clone "{repo_url}" "{project_name}"', SHIP_WORKSPACE)

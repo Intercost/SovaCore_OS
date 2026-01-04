@@ -139,7 +139,7 @@ class UniversalArchitect:
             self.run_command(cmd, project_path)
         
         # Replace 'Intercost' with your actual GitHub username from your .env if needed
-        return f"[https://github.com/Intercost/](https://github.com/Intercost/){repo_name}"
+        return f"https://github.com/Intercost/{repo_name}.git"
 
 if __name__ == "__main__":
     # Start the agent without creating a Tkinter window
