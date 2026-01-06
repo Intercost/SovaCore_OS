@@ -49,7 +49,7 @@
         }
 
         .cyber-card.is-expanded .details-content {
-            max-height: 1000px; /* Large enough for long descriptions */
+            max-height: 1000px; 
             opacity: 1;
             margin-top: 1.5rem;
             padding-top: 1.5rem;
@@ -69,21 +69,29 @@
 </head>
 <body class="p-4 md:p-10">
 
-    <nav class="flex flex-col md:flex-row justify-between items-center mb-12 border-b border-white/10 pb-6">
-        <div class="mb-4 md:mb-0">
+    <nav class="flex flex-col md:flex-row justify-between items-center mb-12 border-b border-white/10 pb-6 gap-6">
+        <div class="text-center md:text-left">
             <h1 class="text-3xl font-black tracking-[0.2em] neon-text-blue uppercase">SovaCore</h1>
-            <div class="flex items-center gap-2 mt-1">
+            <div class="flex items-center justify-center md:justify-start gap-2 mt-1">
                 <span class="h-2 w-2 rounded-full bg-green-500 animate-ping"></span>
                 <p class="text-[10px] font-mono text-gray-400 uppercase tracking-widest">Autonomous Network Online</p>
             </div>
         </div>
         
-        <div class="flex items-center gap-4">
+        <div class="flex flex-wrap justify-center md:justify-end items-center gap-3 md:gap-4">
+            <div class="flex items-center gap-2">
+                <p class="text-[9px] font-mono text-gray-500 uppercase">Active Founder:</p>
+                <select id="founder-selector" class="bg-black/60 border border-purple-500/30 text-purple-400 text-[10px] font-mono rounded px-2 py-1 outline-none">
+                    <option value="Howard">Howard</option>
+                    <option value="Levisco">Levisco</option>
+                </select>
+            </div>
+
             <button onclick="updateDashboard()" class="cyber-card px-4 py-2 rounded-full text-[10px] font-mono text-purple-400 border border-purple-500/30 hover:bg-purple-500/10 flex items-center gap-2 transition-all">
                 <i data-lucide="refresh-cw" class="w-3 h-3"></i> REFRESH DATA
             </button>
             
-            <div id="status-chip" class="cyber-card px-6 py-2 rounded-full text-[10px] font-mono neon-text-cyan border border-cyan-500/30">
+            <div id="status-chip" class="cyber-card px-6 py-2 rounded-full text-[10px] font-mono neon-text-cyan border border-cyan-500/30 whitespace-nowrap">
                 SECURE LINK ESTABLISHED
             </div>
         </div>
@@ -95,8 +103,7 @@
             <h2 class="text-xs font-bold tracking-[0.3em] text-gray-500 uppercase flex items-center gap-2">
                 <i data-lucide="shield-check" class="w-4 h-4 blue-500"></i> Personnel
             </h2>
-            <div id="staff-list" class="space-y-3">
-                </div>
+            <div id="staff-list" class="space-y-3"></div>
         </aside>
 
         <main class="lg:col-span-3 space-y-6">
@@ -118,25 +125,31 @@
                 </div>
             </section>
 
+            <div id="management-section" class="hidden space-y-4 mb-8">
+                <h2 class="text-xs font-bold tracking-[0.3em] text-orange-400 uppercase flex items-center gap-2">
+                    <i data-lucide="alert-triangle" class="w-4 h-4"></i> Management Handoff Required
+                </h2>
+                <div id="ready-for-market-list" class="grid grid-cols-1 gap-4"></div>
+            </div>
+
             <div class="flex justify-between items-center">
                 <h2 class="text-xs font-bold tracking-[0.3em] text-gray-500 uppercase flex items-center gap-2">
                     <i data-lucide="layers" class="w-4 h-4 text-cyan-500"></i> Active Operations
                 </h2>
                 <span id="job-count" class="text-[10px] font-mono text-gray-400">0 JOBS IN QUEUE</span>
             </div>
-            <div id="project-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                </div>
+            <div id="project-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"></div>
         </main>
     </div>
 
     <script>
-        // --- FIX: Use a unique variable name to avoid "Identifier already declared" ---
         const SOVA_URL = "https://xhmsqsooabpcysacaroc.supabase.co";
         const SOVA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhobXNxc29vYWJwY3lzYWNhcm9jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY4NDU5NDksImV4cCI6MjA4MjQyMTk0OX0.jgTSVP1aPE6kTpp8IvNv-ezVAMmEo-qh7OMzOsBgBx4";
         const sovaClient = supabase.createClient(SOVA_URL, SOVA_KEY);
+        let seenIds = new Set();
+        let isFirstLoad = true;
 
         async function updateDashboard() {
-            // Show syncing status
             const statusChip = document.getElementById('status-chip');
             statusChip.innerText = "SYNCING DATA...";
 
@@ -155,11 +168,45 @@
                     </div>
                 `).join('');
 
-                // 2. Fetch Projects
+                // 2. Fetch Market Handoffs (Bots from READY_FOR_MARKET)
+                const { data: readyProjects } = await sovaClient
+                    .from('bots')
+                    .select('*')
+                    .eq('status', 'READY_FOR_MARKET');
+
+                const marketSection = document.getElementById('management-section');
+                const marketList = document.getElementById('ready-for-market-list');
+                
+                if (readyProjects && readyProjects.length > 0) {
+                    marketSection.classList.remove('hidden');
+                    marketList.innerHTML = readyProjects.map(p => `
+                        <div class="cyber-card p-4 rounded-lg border border-orange-500/30 bg-orange-500/5 flex justify-between items-center">
+                            <div>
+                                <h4 class="text-sm font-bold text-white">${p.name}</h4>
+                                <p class="text-[10px] text-gray-400">Zipped and ready. Create Lemon Squeezy product now.</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <a href="http://localhost:5001/download/${p.zip_path}" 
+                                   target="_blank"
+                                   class="px-3 py-1 bg-cyan-600/20 border border-cyan-500 text-cyan-400 text-[10px] font-bold rounded hover:bg-cyan-500/20"
+                                   onclick="window.open('https://app.lemonsqueezy.com/products', '_blank')">
+                                    DOWNLOAD ZIP
+                                </a>
+                                <button onclick="shipProject(${p.id})" 
+                                        class="px-3 py-1 bg-green-600/20 border border-green-500 text-green-400 text-[10px] font-bold rounded hover:bg-green-600/20">
+                                    SHIP IT
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    marketSection.classList.add('hidden');
+                }
+
+                // 3. Fetch Projects
                 const { data: projects } = await sovaClient.from('projects').select('*').order('id', { ascending: false });
                 document.getElementById('job-count').innerText = `${projects.filter(p => p.status === 'QUEUED').length} JOBS IN QUEUE`;
                 
-                // Inside updateDashboard() -> Project Fetching Section
                 document.getElementById('project-grid').innerHTML = projects.map(p => `
                     <div class="cyber-card p-6 rounded-xl flex flex-col border border-white/5" onclick="this.classList.toggle('is-expanded')">
                         <div class="flex justify-between items-start mb-4">
@@ -168,15 +215,11 @@
                                 ${p.status}
                             </span>
                         </div>
-                        
                         <h3 class="text-md font-bold text-white mb-2 leading-tight">${p.project_name}</h3>
-                        
                         <p class="text-[11px] text-gray-500 line-clamp-1">${p.description}</p>
-
                         <div class="details-content">
                             <h4 class="text-[10px] uppercase text-cyan-400 mb-2 font-bold tracking-widest">Full Documentation</h4>
                             <p class="text-xs text-gray-300 leading-relaxed mb-4">${p.description}</p>
-                            
                             <div class="grid grid-cols-2 gap-4 bg-black/30 p-3 rounded border border-white/5">
                                 <div>
                                     <p class="text-[9px] text-gray-500 uppercase">Tech Stack</p>
@@ -187,7 +230,6 @@
                                     <p class="text-[10px] text-gray-400 font-mono">${new Date(p.created_at || Date.now()).toLocaleDateString()}</p>
                                 </div>
                             </div>
-                            
                             ${p.github_url ? `
                                 <div class="mt-4 pt-4 border-t border-white/5">
                                     <p class="text-[9px] text-gray-500 uppercase mb-1">Source Code</p>
@@ -195,7 +237,6 @@
                                 </div>
                             ` : ''}
                         </div>
-
                         <div class="mt-6 flex items-center justify-between">
                             <span class="text-[9px] font-mono text-purple-400 uppercase tracking-widest">Click to Expand</span>
                             ${p.live_url ? `<a href="${p.live_url}" target="_blank" onclick="event.stopPropagation()" class="text-[10px] neon-text-cyan hover:underline font-bold">LIVE_LINK</a>` : ''}
@@ -204,7 +245,6 @@
                 `).join('');
 
                 await loadMessages();
-
                 statusChip.innerText = "SECURE LINK ESTABLISHED";
                 lucide.createIcons();
             } catch (e) {
@@ -214,56 +254,126 @@
             }
         }
 
+        // CHAT FIX: Ensured the display window updates immediately after insert
         async function sendToCEO() {
             const input = document.getElementById('howard-input');
-            if (!input.value) return;
+            const founder = document.getElementById('founder-selector').value;
+            const messageText = input.value.trim();
+            if (!messageText) return;
             
-            // Insert message to Supabase
-            await sovaClient.from('communications').insert({ sender: 'Howard', message: input.value });
-            input.value = '';
-            
-            // Force a scroll to bottom when Howard sends a message
-            await loadMessages(true); 
+            try {
+                // Clear input immediately for better UX
+                input.value = '';
+                
+                // Perform insert
+                await sovaClient.from('communications').insert({ 
+                    sender: founder, 
+                    message: messageText 
+                });
+
+                // Force an immediate reload and scroll
+                await loadMessages(true); 
+            } catch (err) {
+                console.error("Send Error:", err);
+                alert("Failed to send message. Check console for details.");
+            }
+        }
+
+        async function shipProject(id) {
+            const url = prompt("Paste the Lemon Squeezy Checkout Link for this bot:");
+            if (!url) return;
+
+            // Update Ship Agent
+            const response = await fetch('http://localhost:5001/finalize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: id, url: url })
+            });
+
+            if (response.ok) {
+                alert("Mission Accomplished! The bot is now live in the Marketplace.");
+                updateDashboard();
+            }
+        }
+
+        function typeWriter(el, text, i = 0) {
+            if (i < text.length) {
+                el.innerHTML += text.charAt(i);
+                setTimeout(() => {
+                    typeWriter(el, text, i + 1);
+                    // Keep scrolling down as we type
+                    const win = document.getElementById('chat-window');
+                    win.scrollTop = win.scrollHeight;
+                }, 30); // Adjust speed here (lower is faster)
+            }
         }
 
         async function loadMessages(forceScroll = false) {
             const win = document.getElementById('chat-window');
             
-            // 1. Check if user is already near the bottom (within 100px)
-            // If they are scrolled up, isAtBottom will be false
-            const isAtBottom = win.scrollHeight - win.scrollTop <= win.clientHeight + 100;
-
-            const { data: messages } = await sovaClient.from('communications')
+            // Fetch the 20 newest messages
+            const { data: messages, error } = await sovaClient.from('communications')
                 .select('*')
-                .order('created_at', { ascending: true })
+                .order('created_at', { ascending: false })
                 .limit(20);
 
-            if (messages) {
-                const newHtml = messages.map(m => `
-                    <div class="mb-2">
-                        <span class="${m.sender === 'Howard' ? 'text-cyan-400' : 'text-purple-400'} font-bold">[${m.sender}]</span>
-                        <span class="text-gray-300 ml-2">${m.message}</span>
-                    </div>
-                `).join('');
+            if (error) {
+                console.warn("Sync warning:", error);
+                return;
+            }
 
-                // Only update the innerHTML if the content has actually changed to prevent flickering
-                if (win.innerHTML !== newHtml) {
-                    win.innerHTML = newHtml;
-                }
-                
-                // 2. Only scroll down if:
-                // - Howard just sent a message (forceScroll is true)
-                // - OR the user is already at the bottom looking at the latest texts
-                if (forceScroll || isAtBottom) {
+            if (messages) {
+                // Reverse them so the newest is at the bottom
+                const chronological = [...messages].reverse();
+
+                // On first load, display existing messages instantly so the window isn't empty
+                if (isFirstLoad) {
+                    win.innerHTML = chronological.map(m => {
+                        seenIds.add(m.id);
+                        const isFounder = ['Howard', 'Levisco'].includes(m.sender);
+                        return `
+                            <div class="mb-2">
+                                <span class="${isFounder ? 'text-cyan-400' : 'text-purple-400'} font-bold">[${m.sender}]</span>
+                                <span class="text-gray-300 ml-2">${m.message}</span>
+                            </div>`;
+                    }).join('');
                     win.scrollTop = win.scrollHeight;
+                    isFirstLoad = false;
+                    return;
                 }
+
+                // Check for brand new messages
+                chronological.forEach(m => {
+                    if (!seenIds.has(m.id)) {
+                        seenIds.add(m.id);
+                        
+                        const msgDiv = document.createElement('div');
+                        msgDiv.className = 'mb-2';
+                        const isFounder = ['Howard', 'Levisco'].includes(m.sender);
+                        
+                        // Set up the message structure
+                        msgDiv.innerHTML = `<span class="${isFounder ? 'text-cyan-400' : 'text-purple-400'} font-bold">[${m.sender}]</span> `;
+                        
+                        const textSpan = document.createElement('span');
+                        textSpan.className = 'text-gray-300 ml-2';
+                        msgDiv.appendChild(textSpan);
+                        win.appendChild(msgDiv);
+
+                        if (!isFounder) {
+                            // Start typewriter for Prime/Agents
+                            typeWriter(textSpan, m.message);
+                        } else {
+                            // Founders appear instantly
+                            textSpan.innerText = m.message;
+                            win.scrollTop = win.scrollHeight;
+                        }
+                    }
+                });
             }
         }
         
-        // Add loadMessages() inside your existing updateDashboard() function so it refreshes.
         updateDashboard();
         setInterval(() => loadMessages(false), 4000);
-        //setInterval(updateDashboard, 15000); // Fast refresh (15s)
     </script>
 </body>
 </html>

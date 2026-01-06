@@ -2,7 +2,6 @@ import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Load environment variables from .env file
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -10,45 +9,67 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 class SovaMemory:
     def __init__(self):
-        # Initialize Supabase client using env variables
         self.client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    def add_project(self, name, description, tech_stack):
-        """Prime uses this to hire the team for a new job."""
+    def add_project(self, name, description, tech_stack, marketing_desc, price):
+        """Modified: Prime now adds marketing info and pricing strategy."""
         data = {
-            "project_name": name,
-            "description": description,
+            "name": name,
+            "technical_spec": description, # Used by Alpha
             "tech_stack": tech_stack,
-            "status": "QUEUED" 
+            "marketing_description": marketing_desc, # Used by Lemon Squeezy
+            "price": price,
+            "status": "pending" # Initial state for Alpha
         }
-        return self.client.table("projects").insert(data).execute()
+        return self.client.table("bots").insert(data).execute()
 
-    def get_next_task(self, role_status):
-        """Agents use this to see if there is work for them."""
-        return self.client.table("projects").select("*").eq("status", role_status).order("id").limit(1).execute()
+    def get_next_task(self, status):
+        """Agents fetch work based on the status (pending, building, zipped, etc)."""
+        return self.client.table("bots").select("*").eq("status", status).order("created_at").limit(1).execute()
 
     def update_status(self, project_id, new_status):
-        """Allows agents to move a project to the next stage."""
-        return self.client.table("projects").update({"status": new_status}).eq("id", project_id).execute()
-    
-    def get_staff(self):
-        """FIXED INDENTATION: Prime uses this to see who is currently working."""
-        return self.client.table("staff").select("*").execute()
+        """Moves the bot through the assembly line."""
+        return self.client.table("bots").update({"status": new_status}).eq("id", project_id).execute()
 
-    def update_staff_status(self, staff_id, status):
-        """FIXED INDENTATION: Prime uses this to hire or fire."""
-        return self.client.table("staff").update({"status": status}).eq("id", staff_id).execute()
+    def update_project_assets(self, project_id, folder_path=None, zip_path=None):
+        """Luxe uses this to store the location of the code and the final zip."""
+        update_data = {}
+        if folder_path: update_data["folder_path"] = folder_path
+        if zip_path: update_data["zip_path"] = zip_path
+        
+        return self.client.table("bots").update(update_data).eq("id", project_id).execute()
 
+    def save_deployment_link(self, project_id, checkout_url):
+        """Ship uses this to save the final Lemon Squeezy URL."""
+        return self.client.table("bots").update({
+            "checkout_url": checkout_url,
+            "status": "deployed"
+        }).eq("id", project_id).execute()
+
+    # --- Communication Methods (Keep these as they were) ---
+    # In memory.py
     def get_unread_messages(self):
-        """Prime checks for new messages from Howard."""
-        return self.client.table("communications").select("*").eq("is_read", False).eq("sender", "Howard").execute()
+        """Fetches unread messages from both Howard and Levisco."""
+        # OLD: .eq("sender", "Howard")
+        # NEW: Fetches if sender is either Howard or Levisco
+        return self.client.table("communications") \
+            .select("*") \
+            .eq("is_read", False) \
+            .in_("sender", ["Howard", "Levisco"]) \
+            .execute()
+    
+    def get_recent_chats(self, limit=10):
+        """Retrieves the last N messages for context/memory."""
+        return self.client.table("communications") \
+            .select("*") \
+            .order("created_at", desc=True) \
+            .limit(limit) \
+            .execute()
 
     def send_message(self, sender, message):
-        """Used by both Howard (from dashboard) and Prime."""
         return self.client.table("communications").insert({"sender": sender, "message": message}).execute()
 
     def mark_as_read(self, msg_id):
         return self.client.table("communications").update({"is_read": True}).eq("id", msg_id).execute()
 
-# Initialize global memory instance
 memory = SovaMemory()

@@ -2,7 +2,7 @@ import os
 import json
 import threading
 import google.generativeai as genai
-from dotenv import load_dotenv  # New: For security
+from dotenv import load_dotenv
 import re
 import subprocess  
 import time
@@ -10,15 +10,15 @@ from memory import memory
 
 # --- CONFIGURATION ---
 load_dotenv()
-# Get API key and Path from .env
 GEMINI_KEY = os.getenv("GEMINI_API_KEY_ALPHA")
-DESKTOP_PATH = os.getenv("PROJECT_DESKTOP_PATH", "C:\\AI_Projects")
+# In Railway, /tmp is writable. Ensure this matches your .env
+DESKTOP_PATH = os.getenv("PROJECT_DESKTOP_PATH", "/tmp/projects")
 
 genai.configure(api_key=GEMINI_KEY) 
 
 class UniversalArchitect:
     def __init__(self):
-        print("🤖 Sova-Alpha Headless Online. Monitoring Supabase...")
+        print("🤖 Sova-Alpha Headless Online (Railway Mode). Monitoring Supabase...")
         self.autonomous_monitor()
 
     def log(self, message):
@@ -27,10 +27,11 @@ class UniversalArchitect:
     def autonomous_monitor(self):
         while True:
             try:
-                response = memory.get_next_task("QUEUED")
+                # Changed to "pending" to match Prime's initial status
+                response = memory.get_next_task("pending")
                 if response.data:
                     project = response.data[0]
-                    self.log(f"⚡ NEW JOB: {project['project_name']}")
+                    self.log(f"⚡ NEW JOB: {project['name']}")
                     self.build_project(project)
                 else:
                     time.sleep(10) 
@@ -54,14 +55,15 @@ class UniversalArchitect:
 
     def build_project(self, project):
         project_id = project['id']
-        description = project['description']
-        tech_stack = project.get('tech_stack', 'Any suitable stack')
+        # Fixed key mapping to match your memory.py schema
+        description = project['technical_spec'] 
+        tech_stack = project.get('tech_stack', 'Python')
 
-        # Sanitize project name
-        project_name = re.sub(r'[<>:"/\\|?*]', '', project['project_name']).replace(" ", "_")
+        # Sanitize project name for folder creation
+        project_name = re.sub(r'[<>:"/\\|?*]', '', project['name']).replace(" ", "_")
         
         try:
-            model = genai.GenerativeModel("gemini-2.5-flash") 
+            model = genai.GenerativeModel("gemini-2.5-flash") # Updated to current flash model
             
             system_prompt = f"""
             You are Sova-Alpha.
@@ -86,6 +88,7 @@ class UniversalArchitect:
 
             response = model.generate_content(system_prompt)
             
+            # Clean JSON response
             clean_json = re.sub(r"```json|```", "", response.text).strip()
             data = json.loads(clean_json)
             
@@ -104,40 +107,21 @@ class UniversalArchitect:
             self.log("\n📦 --- INSTALLATION PHASE ---")
             if os.path.exists(os.path.join(full_project_path, "package.json")):
                 self.run_command("npm install", full_project_path)
-            
-            # --- GITHUB UPLOAD ---
-            repo_url = self.git_push_to_github(full_project_path, project_name)
+            elif os.path.exists(os.path.join(full_project_path, "requirements.txt")):
+                self.run_command("pip install -r requirements.txt", full_project_path)
 
-            # --- UPDATE SUPABASE (ONLY AFTER SUCCESS) ---
-            memory.client.table("projects").update({
-                "status": "BUILT",
-                "github_url": repo_url
-            }).eq("id", project_id).execute()
+            # --- UPDATE SHARED MEMORY FOR LUXE ---
+            # 1. Save the folder path so Luxe knows where to look
+            memory.update_project_assets(project_id, folder_path=full_project_path)
             
-            self.log(f"✅ Project {project_name} status set to BUILT.")
+            # 2. Update status to "BUILT" so Luxe picks it up
+            memory.update_status(project_id, "BUILT")
+            
+            self.log(f"✅ Project {project_name} built at {full_project_path}. Handing over to Luxe.")
 
         except Exception as e:
             self.log(f"❌ ERROR: {str(e)}")
             memory.update_status(project_id, "FAILED")
-
-    def git_push_to_github(self, project_path, repo_name):
-        self.log(f"Pushing {repo_name} to GitHub...")
-
-        commands = [
-            "git init",
-            'git config user.email "juniorintercostlandian@gmail.com"',
-            'git config user.name "Intercost"',
-            "git add .",
-            'git commit -m "Initial build by Sova-Alpha"',
-            f"gh repo create Intercost/{repo_name} --public --source=. --remote=origin --push"
-        ]
-
-        for cmd in commands:
-            code = self.run_command(cmd, project_path)
-            if code != 0 and "commit" in cmd:
-                raise RuntimeError("Git commit failed — aborting GitHub upload")
-
-        return f"https://github.com/Intercost/{repo_name}.git"
 
 if __name__ == "__main__":
     agent = UniversalArchitect()

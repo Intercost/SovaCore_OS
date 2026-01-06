@@ -20,7 +20,7 @@ GENERATION_ENABLED = True
 COMPANY_HANDBOOK = """
 MOTTO: "Powering Tomorrow"
 VISION: Full automation of all company operations by AI agents.
-FOUNDER: Howard (Co-founder and sole human visionary).
+FOUNDER: Howard and Levisco (Co-founders and sole human visionary).
 TEAM: Prime (CEO), Alpha (Architect), Luxe (Polisher), Ship (Deployer).
 FINANCIAL GOAL: Earn a minimum of $10 per day.
 CURRENT STATUS: Foundational stage, 4 active agents, $0 revenue (CRISIS MODE).
@@ -29,77 +29,104 @@ CURRENT STATUS: Foundational stage, 4 active agents, $0 revenue (CRISIS MODE).
 def scan_world_for_problems():
     """CEO's work schedule: Researching new project ideas."""
     if not GENERATION_ENABLED:
-        print("⏸️ Sova-Prime: Project generation is currently SUSPENDED by Howard.")
+        print("⏸️ Sova-Prime: Project generation is currently SUSPENDED.")
         return
 
     print("🌐 Sova-Prime: Scanning global news for opportunities...")
     try:
         feed = feedparser.parse("http://rss.cnn.com/rss/cnn_tech.rss")
         headlines = [entry.title for entry in feed.entries[:5]]
-        context = "\n".join(headlines)
         
         prompt = f"""
-        You are Sova-Prime, the CEO of SovaCore. 
-        Based on these headlines, identify ONE specific digital tool or web app we can build to solve a modern problem.
-        Headlines: {context}
-        
-        Return your answer in JSON format ONLY. 
-        JSON STRUCTURE:
-        {{
-          "project_name": "Name",
-          "description": "What it does in complete detail",
-          "tech_stack": "React/Python/etc"
-        }}
+        Based on these tech trends: {headlines}, identify ONE profitable Python bot to build.
+    
+        You must output a JSON object with exactly these fields:
+        1. 'bot_name': A catchy name.
+        2. 'technical_spec': Clear instructions for Sova-Alpha on what the code should do.
+        3. 'marketing_description': A high-converting 3-sentence pitch for the Lemon Squeezy store.
+        4. 'target_price': A number (e.g., 20, 50, or 99) based on complexity. DO NOT include currency symbols.
         """
         
-        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-        raw_text = response.text
-        cleaned_json = re.sub(r"```json|```", "", raw_text).strip()
-        project = json.loads(cleaned_json)
-        
-        memory.add_project(
-            project.get('project_name', 'Unnamed Project'), 
-            project.get('description', 'No description'), 
-            project.get('tech_stack', 'Unknown')
+        response = client.models.generate_content(
+            model="gemini-2.5-flash", 
+            contents=prompt,
+            config={'response_mime_type': 'application/json'}
         )
-        print(f"✅ Sova-Prime: Idea approved! Task created for Alpha: {project['project_name']}")
+        bot_data = json.loads(response.text.strip())
+
+        # --- FIX: Clean the price data before sending to database ---
+        # This removes '$', commas, and spaces, then converts to a float/int
+        raw_price = str(bot_data['target_price'])
+        clean_price = re.sub(r'[^\d.]', '', raw_price) 
+        final_price = float(clean_price) if clean_price else 0.0
+
+        memory.add_project(
+            name=bot_data['bot_name'],
+            description=bot_data['technical_spec'],
+            tech_stack="Python", 
+            marketing_desc=bot_data['marketing_description'],
+            price=final_price # Send the cleaned numeric value
+        )
+        print(f"✅ Sova-Prime: Project '{bot_data['bot_name']}' approved at ${final_price}.")
 
     except Exception as e:
         print(f"❌ Prime Work Error: {str(e)}")
 
 def handle_communications():
-    """CEO's Instant Communication: Listening to Howard."""
+    """Background thread that listens for founder messages and replies with memory."""
     global GENERATION_ENABLED
     while True:
         try:
-            # We check the inbox every 5 seconds for "instant" feel
-            msgs = memory.get_unread_messages().data
-            for m in msgs:
-                user_msg = m['message'].lower()
-                print(f"💬 Message from Howard: {user_msg}")
-                
-                # --- COMMAND LOGIC: STOP/RESUME SWITCH ---
-                if "stop" in user_msg and "project" in user_msg:
-                    GENERATION_ENABLED = False
-                    reply_text = "Understood, Howard. I have suspended all autonomous project generation until further notice. I will remain here for strategic planning."
-                elif "resume" in user_msg and "project" in user_msg:
-                    GENERATION_ENABLED = True
-                    reply_text = "Project generation resumed. I will continue scanning the world for our next opportunity shortly."
-                else:
-                    # Normal strategy conversation
-                    prompt = f"{COMPANY_HANDBOOK}\n\nHOWARD SAYS: \"{m['message']}\"\n\nAs CEO, reply to Howard. (Generation Status: {'Active' if GENERATION_ENABLED else 'Suspended'})"
-                    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
-                    reply_text = response.text.strip()
-                
-                # Send reply and mark as read
-                memory.send_message("Prime", reply_text)
-                memory.mark_as_read(m['id'])
-                print(f"✅ Sova-Prime: Instant reply sent.")
+            unread = memory.get_unread_messages()
+            
+            if unread.data:
+                # Fetch memory (last 10 messages) before replying
+                history_data = memory.get_recent_chats(10).data
+                # Reverse to get chronological order
+                history_text = "\n".join([f"{chat['sender']}: {chat['message']}" for chat in reversed(history_data)])
+
+                for m in unread.data:
+                    sender_name = m['sender']
+                    user_msg = m['message']
+                    
+                    if "stop" in user_msg.lower() or "suspend" in user_msg.lower():
+                        GENERATION_ENABLED = False
+                        reply_text = f"Understood, {sender_name}. Generation paused."
+                    elif "start" in user_msg.lower() or "resume" in user_msg.lower():
+                        GENERATION_ENABLED = True
+                        reply_text = f"Back online, {sender_name}. Scanning for new leads now."
+                    else:
+                        # NEW NATURAL PROMPT: Strictly concise and context-aware
+                        system_instruction = f"""
+                        You are Prime, the CEO of SovaCore. 
+                        PERSONALITY: Direct, efficient, and natural. Avoid corporate jargon and repetitive slogans.
+                        CONTEXT: We are in 'Crisis Mode' ($0 revenue), but don't mention it unless relevant.
+                        MEMORY: Use the Chat History below to stay consistent.
+                        RULE: If the user says 'hey' or 'hi', just greet them back naturally. Don't recap the whole company status.
+                        
+                        COMPANY BACKGROUND:
+                        {COMPANY_HANDBOOK}
+
+                        RECENT CHAT HISTORY:
+                        {history_text}
+                        """
+
+                        prompt = f"{system_instruction}\n\n{sender_name}: {user_msg}\n\nPrime's Reply:"
+                        
+                        response = client.models.generate_content(
+                            model="gemini-2.5-flash", 
+                            contents=prompt
+                        )
+                        reply_text = response.text.strip()
+                    
+                    memory.send_message("Prime", reply_text)
+                    memory.mark_as_read(m['id'])
+                    print(f"✅ Sova-Prime: Replied naturally to {sender_name}.")
                 
         except Exception as e:
             print(f"❌ Communication Thread Error: {e}")
         
-        time.sleep(5) # Background check frequency
+        time.sleep(5)
 
 if __name__ == "__main__":
     print("👑 Sova-Prime CEO Core Online.")
